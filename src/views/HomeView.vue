@@ -35,20 +35,24 @@ import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
 
 import {
   mockUserPosts,
+  mockGuestPosts,
   mockGlobalPosts,
   mockSuggestedUsers
 } from '@/mockData'
 
 // Use global login state
 const auth = useAuthStore()
-
 const isLoggedIn = computed(() => auth.isLoggedIn)
 const user = computed(() => auth.user)
 const suggestedUsers = ref(mockSuggestedUsers)
 
 // Feed poasts
-const posts = computed(() =>
-  isLoggedIn.value ? [...mockUserPosts] : [...mockGlobalPosts]
+const posts = ref(
+  isLoggedIn.value
+    ? auth.user.username === 'guest'
+      ? [...mockGuestPosts]
+      : [...mockUserPosts]
+    : [...mockGlobalPosts]
 )
 
 function addNewPost(content) {
@@ -59,6 +63,11 @@ function addNewPost(content) {
     date: new Date().toLocaleString()
   }
   posts.value.unshift(newPost)
+
+  //increasing post count 
+  if (auth.user) {
+    auth.user.posts++
+  }
 }
 </script>
 

@@ -9,7 +9,11 @@ export const useAuthStore = defineStore('pinia', () => {
 
     function login(email) {
         isLoggedIn.value = true
-        user.value = { ...mockUser, email } 
+        if (email === "doc@who.come") {
+            user.value = { ...mockUser, email }
+        } else {
+            user.value = { ...mockGuest, email}
+        }
     }
 
     function logout() {
