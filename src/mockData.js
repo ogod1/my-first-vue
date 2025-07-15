@@ -2,10 +2,10 @@ export const mockUser = {
   id: 'doc12',
   username: 'doctor12',
   email: 'doc@who.com',
-  posts: 3,
+  posts: 2,
   following: 2,
   followers: 5,
-  followingIds: ['u1', 'u3'] // <-- add this!
+  followingIds: ['u1', 'u3'] 
 }
 
 export const mockGuest = {
@@ -15,7 +15,7 @@ export const mockGuest = {
   posts: 0,
   following: 0,
   followers: 0,
-  followingIds: ['u1', 'u3'] // <-- add this!
+  followingIds: ['u1', 'u3'] 
 }
 
 // User-specific posts

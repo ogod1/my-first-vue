@@ -3,9 +3,9 @@
     <template v-if="user && isLoggedIn">
       <h3>@{{ user.username }}</h3>
       <ul>
-        <li>Posts: {{ user.posts }}</li>
-        <li>Following: {{ user.following }}</li>
-        <li>Followers: {{ user.followers }}</li>
+        <li>Posts: {{ user.posts ?? 0 }}</li>
+        <li>Following: {{ user.following ?? 0 }}</li>
+        <li>Followers: {{ user.followers ?? 0 }}</li>
       </ul>
     </template>
 
