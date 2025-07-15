@@ -1,37 +1,89 @@
 <template>
-  <div class="profile">
+  <div class="home">
     <h1>User Profile</h1>
 
     <div class="feed">
       <div class="left-column">
         <UserStats v-if="user" :user="user" :isLoggedIn="true" />
-        <p v-else>User not found :</p>
+      </div>
+
+      <div class="center-column">
+        <PostInput v-if="isLoggedIn" @post="addNewPost" />
+        <PostInput
+            v-if="isLoggedIn && auth.user?.id === user?.id"
+            @post="addNewPost"
+        />
+        <PostFeed :posts="posts" />
+      </div>
+
+      <div class="right-column">
+        <SuggestedFollowers
+            v-if="user"
+            :currentUser="user"
+            :isLoggedIn="isLoggedIn"
+            :suggested="suggestedUsers"
+        />
       </div>
     </div>
   </div>
 </template>
 
-<script setup>
-import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { useAuthStore } from '@/stores/pinia'
-import UserStats from '@/components/UserStats.vue'
-import { mockSuggestedUsers } from '@/mockData'
 
+<script setup>
+import { computed, ref} from 'vue'
+import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/pinia' 
+
+import UserStats from '@/components/UserStats.vue'
+import PostInput from '@/components/PostInput.vue'
+import PostFeed from '@/components/PostFeed.vue'
+import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
+
+import {
+  mockUserPosts,
+  mockGuestPosts,
+  mockGlobalPosts,
+  mockSuggestedUsers
+} from '@/mockData'
+
+// Use global login state
 const route = useRoute()
 const auth = useAuthStore()
+const isLoggedIn = computed(() => auth.isLoggedIn)
 const user = ref(null)
 const id = route.params.id
 user.value = mockSuggestedUsers.find(u => u.id.toString() === id)
+const suggestedUsers = ref(mockSuggestedUsers)
 
-//onMounted(() => {
-  // const id = route.params.id
+// Feed poasts
+const posts = ref([])
 
-  // Fix: compare ID as string (just in case)
-  // const loggedInUser = auth.user && auth.user.id?.toString() === id
+if (user.value) {
+  // Optional: match by username
+  if (user.value.username === 'doctor12') {
+    posts.value = [...mockUserPosts]
+  } else if (user.value.username === 'guest') {
+    posts.value = [...mockGuestPosts]
+  } else {
+    posts.value = [] // No posts for this user
+  }
+}
 
-  // user.value = mockSuggestedUsers.find(u => u.id.toString() === id)
-//})
+
+function addNewPost(content) {
+  const newPost = {
+    id: Date.now(),
+    author: user.value.username,
+    content,
+    date: new Date().toLocaleString()
+  }
+  posts.value.unshift(newPost)
+
+  //increasing post count 
+  if (auth.user) {
+    auth.user.posts++
+  }
+}
 </script>
 
 
@@ -51,6 +103,9 @@ user.value = mockSuggestedUsers.find(u => u.id.toString() === id)
 
 .left-column {
   margin-top: 32px;
+}
+
+.center-column {
   width: 800px;
 }
 </style>
