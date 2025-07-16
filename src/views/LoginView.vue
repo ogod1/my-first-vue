@@ -1,9 +1,9 @@
 <template>
   <div class="login-form">
-    <h2 v-if="!auth.isLoggedIn">{{ isCreating ? 'Create Account' : 'Login' }}</h2>
-    <h2 v-else>You're logged in as <span class="email">{{ auth.user.email }}</span></h2>
+    <h2 v-if="!authStore.isLoggedIn">{{ isCreating ? 'Create Account' : 'Login' }}</h2>
+    <h2 v-else>You're logged in as <span class="email">{{ authStore.user.email }}</span></h2>
 
-    <div v-if="!auth.isLoggedIn" class="form">
+    <div v-if="!authStore.isLoggedIn" class="form">
       <input v-model="email" type="email" placeholder="Email" />
       <input v-model="password" type="password" placeholder="Password" />
 
@@ -24,53 +24,81 @@
 
 
 <script setup>
-    import { ref } from 'vue'
-    import { useAuthStore } from '@/stores/pinia'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/pinia'
+import { auth, firestore } from '@/firebaseResources'
 
-    const auth = useAuthStore()
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut
+} from 'firebase/auth'
+import { doc, setDoc, getDoc } from 'firebase/firestore'
 
-    const isCreating = ref(false)
-    const email = ref('')
-    const password = ref('')
+const authStore = useAuthStore()
+const router = useRouter()
+const isCreating = ref(false)
+const email = ref('')
+const password = ref('')
 
-    // Use this instead of a local ref
-    const MOCK_EMAIL = 'doc@who.com'
-    const MOCK_PASSWORD = 'password123'
+function toggleMode() {
+  isCreating.value = !isCreating.value
+}
 
-    function toggleMode() {
-        isCreating.value = !isCreating.value
+async function handleSubmit() {
+  try {
+    if (isCreating.value) {
+      // 👤 Create new Firebase Auth user
+      const cred = await createUserWithEmailAndPassword(auth, email.value, password.value)
+
+      const emailId = cred.user.email
+
+      // 📄 Use email as document ID in Firestore
+      const userData = {
+        email: emailId,
+        feed: [],
+        posts: [],
+        followers: [],
+        following: []
+      }
+
+      await setDoc(doc(firestore, 'users', emailId), userData)
+
+      // ✅ Log in with the userData you just saved
+      authStore.login(userData)
+      alert('Account created successfully!')
+
+    } else {
+      // 🔐 Log in existing user
+      const cred = await signInWithEmailAndPassword(auth, email.value, password.value)
+
+      const emailId = cred.user.email
+      const userDoc = await getDoc(doc(firestore, 'users', emailId))
+      const data = userDoc.exists() ? userDoc.data() : {}
+
+      authStore.login({
+        email: emailId,
+        ...data
+      })
     }
 
-    function handleSubmit() {
-        const enteredEmail = email.value
-        const enteredPassword = password.value
+    // Reset form and go home
+    email.value = ''
+    password.value = ''
+    router.push('/')
 
-        email.value = ''
-        password.value = ''
+  } catch (error) {
+    alert(error.message)
+  }
+}
 
-        if (isCreating.value) {
-            // Creating account — allow any credentials for now
-            auth.login(enteredEmail)
-            alert('Account created successfully!')
-        } else {
-            // Logging in — must match mock credentials
-            if (
-            enteredEmail === MOCK_EMAIL &&
-            enteredPassword === MOCK_PASSWORD
-            ) {
-            auth.login(enteredEmail)
-            } else {
-            alert(`Incorrect credentials.\n\nTry:\nEmail: ${MOCK_EMAIL}\nPassword: ${MOCK_PASSWORD}`)
-            }
-        }
-    }
-
-    function logout() {
-        auth.logout()
-    }
-
-
+async function logout() {
+  await signOut(auth)
+  authStore.logout()
+}
 </script>
+
 
 
 <style scoped>

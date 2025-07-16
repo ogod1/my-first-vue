@@ -8,9 +8,8 @@
       </div>
 
       <div class="center-column">
-        <PostInput v-if="isLoggedIn" @post="addNewPost" />
         <PostInput
-            v-if="isLoggedIn && auth.user?.id === user?.id"
+            v-if="isLoggedIn && auth.user?.email === user?.email"
             @post="addNewPost"
         />
         <PostFeed :posts="posts" />
@@ -30,61 +29,74 @@
 
 
 <script setup>
-import { computed, ref} from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useAuthStore } from '@/stores/pinia' 
+import { useAuthStore } from '@/stores/pinia'
+import { firestore } from '@/firebaseResources'
+
+import { doc, getDoc, getDocs, collection } from 'firebase/firestore'
 
 import UserStats from '@/components/UserStats.vue'
 import PostInput from '@/components/PostInput.vue'
 import PostFeed from '@/components/PostFeed.vue'
 import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
 
-import {
-  mockUserPosts,
-  mockGuestPosts,
-  mockGlobalPosts,
-  mockSuggestedUsers
-} from '@/mockData'
-
-// Use global login state
 const route = useRoute()
 const auth = useAuthStore()
 const isLoggedIn = computed(() => auth.isLoggedIn)
 const user = ref(null)
-const id = route.params.id
-user.value = mockSuggestedUsers.find(u => u.id.toString() === id)
-const suggestedUsers = ref(mockSuggestedUsers)
-
-// Feed poasts
 const posts = ref([])
 
-if (user.value) {
-  // Optional: match by username
-  if (user.value.username === 'doctor12') {
-    posts.value = [...mockUserPosts]
-  } else if (user.value.username === 'guest') {
-    posts.value = [...mockGuestPosts]
-  } else {
-    posts.value = [] // No posts for this user
-  }
-}
+const email = route.params.email
+const suggestedUsers = ref([])
 
+onMounted(async () => {
+    console.log('Viewing profile for email:', route.params.email)
+  try {
+    // 1. Load user profile from Firestore
+    const userRef = doc(firestore, 'users', email)
+    const userSnap = await getDoc(userRef)
 
-function addNewPost(content) {
-  const newPost = {
-    id: Date.now(),
-    author: user.value.username,
-    content,
-    date: new Date().toLocaleString()
-  }
-  posts.value.unshift(newPost)
+    if (userSnap.exists()) {
+      user.value = userSnap.data()
 
-  //increasing post count 
-  if (auth.user) {
-    auth.user.posts++
+      // 2. Load post documents from Firestore
+      const postIds = user.value.posts || []
+      const postData = []
+
+      for (const postId of postIds) {
+        const postRef = doc(firestore, 'posts', postId)
+        const postSnap = await getDoc(postRef)
+        if (postSnap.exists()) {
+          postData.push({ id: postId, ...postSnap.data() })
+        }
+      }
+
+      posts.value = postData.sort((a, b) =>
+        (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)
+      )
+    } else {
+      console.warn('User not found:', email)
+    }
+
+    // 3. Optional: load suggested users list
+    // For now, this just shows everyone (fix if needed)
+    const allUserDocs = await getDocs(collection(firestore, 'users'))
+    suggestedUsers.value = allUserDocs.docs
+      .map(doc => doc.data())
+      .filter(u => u.email !== email)
+      .slice(0, 5)
+  } catch (err) {
+    console.error('Error loading profile:', err)
   }
+})
+
+async function addNewPost(content) {
+  console.warn('New post creation from profile view is not wired yet.')
+  // You could reuse your addNewPost logic from HomeView.vue here if needed
 }
 </script>
+
 
 
 <style scoped>

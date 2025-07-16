@@ -1,21 +1,21 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { mockUser } from '@/mockData'
 
-
+// stores/pinia.js
 export const useAuthStore = defineStore('pinia', () => {
-    const isLoggedIn = ref(false)
-    const user = ref(null)
+  const isLoggedIn = ref(false)
+  const user = ref(null)
 
-    function login(email) {
-        isLoggedIn.value = true
-        user.value = { ...mockUser, email }
-    }
+  function login(userData) {
+    isLoggedIn.value = true
+    user.value = userData
+  }
 
-    function logout() {
-        isLoggedIn.value = false
-        user.value = null
-    }
+  function logout() {
+    isLoggedIn.value = false
+    user.value = null
+  }
 
-    return { isLoggedIn, user, login, logout }
-})
+  return { isLoggedIn, user, login, logout }
+})  
+

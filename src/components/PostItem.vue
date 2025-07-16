@@ -2,7 +2,7 @@
   <div class="post-item">
     <div class="post-header">
       <span class="author">@{{ author }}</span>
-      <span class="date">{{ date }}</span>
+      <span class="date">{{ formattedDate }}</span>
     </div>
     <div class="post-content">
       {{ content }}
@@ -11,11 +11,29 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+
 // Props: input data from PostFeed.vue
-defineProps({
+const props = defineProps({
   author: String,
-  date: String,
+  timestamp: [Object, String, Number],
   content: String
+})
+
+const formattedDate = computed(() => {
+  if (!props.timestamp) return ''
+  let d
+  // Firestore Timestamp object
+  if (typeof props.timestamp === 'object' && props.timestamp.seconds) {
+    d = new Date(props.timestamp.seconds * 1000)
+  } else if (typeof props.timestamp === 'string' || typeof props.timestamp === 'number') {
+    d = new Date(props.timestamp)
+  } else if (props.timestamp instanceof Date) {
+    d = props.timestamp
+  } else {
+    return ''
+  }
+  return d.toLocaleString()
 })
 </script>
 

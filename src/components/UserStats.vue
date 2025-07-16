@@ -1,9 +1,9 @@
 <template>
   <div class="user-stats">
     <template v-if="user && isLoggedIn">
-      <h3>@{{ user.username }}</h3>
+      <h3>@{{ user.email }}</h3>
       <ul>
-        <li>Posts: {{ user.posts ?? 0 }}</li>
+        <li>Posts: {{ user.posts?.length ?? 0 }}</li>
         <li>Following: {{ user.following ?? 0 }}</li>
         <li>Followers: {{ user.followers ?? 0 }}</li>
       </ul>

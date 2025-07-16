@@ -12,7 +12,7 @@
       v-for="post in posts"
       :key="post.id"
       :author="post.author"
-      :date="post.date"
+      :timestamp="post.timestamp"
       :content="post.content"
     />
   </div>
