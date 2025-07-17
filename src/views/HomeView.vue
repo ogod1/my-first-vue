@@ -57,48 +57,6 @@ const user = computed(() => auth.user)
 const posts = ref([])
 let unsubscribeFeed = null
 
-async function setupFeedListener() {
-  if (unsubscribeFeed) unsubscribeFeed()
-
-  if (isLoggedIn.value && user.value?.email) {
-    const userRef = doc(firestore, 'users', user.value.email)
-
-    unsubscribeFeed = onSnapshot(userRef, async (userSnap) => {
-      if (!userSnap.exists()) return
-
-      const userData = userSnap.data()
-      const following = userData.following || []
-
-      if (following.length === 0) {
-        posts.value = []
-        return
-      }
-
-      // Listen to latest posts from all users
-      const q = query(
-        collection(firestore, 'posts'),
-        orderBy('timestamp', 'desc')
-      )
-
-      const snap = await getDocs(q)
-
-      posts.value = snap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(post =>
-          // Only include posts from followed users, not own
-          following.includes(post.author) && post.author !== user.value.email
-        )
-        .slice(0, 10)
-    })
-  } else {
-    // Not logged in → show global posts
-    const q = query(collection(firestore, 'posts'), orderBy('timestamp', 'desc'), limit(10))
-    unsubscribeFeed = onSnapshot(q, (snap) => {
-      posts.value = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-    })
-  }
-}
-
 
 
 onMounted(() => {
@@ -161,6 +119,41 @@ async function addNewPost(content) {
     user.value.posts = []
   }
   user.value.posts.push(postRef.id)
+}
+
+async function setupFeedListener() {
+  if (unsubscribeFeed) unsubscribeFeed();
+
+  if (isLoggedIn.value && user.value?.email) {
+    const userRef = doc(firestore, 'users', user.value.email);
+    unsubscribeFeed = onSnapshot(userRef, (userSnap) => {
+      if (!userSnap.exists()) {
+        posts.value = [];
+        return;
+      }
+      const userData = userSnap.data();
+      const following = userData.following || [];
+      const filteredFollowing = following.filter(email => email !== user.value.email);
+      if (filteredFollowing.length === 0) {
+        posts.value = [];
+        return;
+      }
+      const q = query(
+        collection(firestore, 'posts'),
+        where('author', 'in', filteredFollowing),
+        orderBy('timestamp', 'desc'),
+        limit(10)
+      );
+      onSnapshot(q, (snap) => {
+        posts.value = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      });
+    });
+  } else {
+    const q = query(collection(firestore, 'posts'), orderBy('timestamp', 'desc'), limit(10));
+    unsubscribeFeed = onSnapshot(q, (snap) => {
+      posts.value = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    });
+  }
 }
 </script>
 

@@ -4,9 +4,8 @@
 
     <div v-if="!loading && filtered.length">
       <div v-for="user in filtered" :key="user.email" class="suggested-user">
-        <router-link :to="`/users/${user.email}`">@{{ user.email }}</router-link>
+        <router-link v-if="user && user.email" :to="`/users/${user.email}`">@{{ user.email }}</router-link>
 
-        <!-- ✅ Show button only when logged in -->
         <button
           v-if="props.isLoggedIn"
           @click="followUser(user.email)"
@@ -21,9 +20,6 @@
   </div>
 </template>
 
-
-
-
 <script setup>
 import { computed, ref, onMounted, watch } from 'vue'
 import { collection, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore'
@@ -36,104 +32,128 @@ const props = defineProps({
 })
 
 const allUsers = ref([])
-const followedUserIds = ref([])
 const authStore = useAuthStore()
 const loading = ref(true)
-const localUser = ref(props.currentUser ? { ...props.currentUser } : null)
-
-onMounted(async () => {
-  const querySnapshot = await getDocs(collection(firestore, 'users'))
-  const currentEmail = props.currentUser?.email || ''
-  allUsers.value = querySnapshot.docs
-    .map(doc => doc.data())
-    .filter(user => user.email !== currentEmail) // ⬅️ remove logged-in user
-  loading.value = false
-})
-
+const localUser = ref(null)
 
 watch(() => props.currentUser, (newVal) => {
   localUser.value = newVal ? { ...newVal } : null
 })
 
-async function followUser(targetEmail) {
-  if (!props.currentUser?.email) return;
+watch(
+  () => props.currentUser,
+  async (newVal) => {
+    if (newVal?.email) {
+      localUser.value = { ...newVal }
+      await fetchSuggestedUsers()
+    }
+  },
+  { immediate: true }
+)
 
-  const currentEmail = props.currentUser.email;
-
-  const currentUserRef = doc(firestore, 'users', currentEmail);
-  const targetUserRef = doc(firestore, 'users', targetEmail);
-
-  const [currentSnap, targetSnap] = await Promise.all([
-    getDoc(currentUserRef),
-    getDoc(targetUserRef)
-  ]);
-
-  if (!currentSnap.exists() || !targetSnap.exists()) return;
-
-  const currentData = currentSnap.data();
-  const targetData = targetSnap.data();
-
-  const alreadyFollowing = computed(() => {
-    return new Set([
-      ...(localUser.value?.following || []),
-      ...followedUserIds.value
-    ])
-  })
-  const alreadyFollowedBy = (targetData.followers || []).includes(currentEmail);
-
-  const theirPosts = targetData.posts || [];
-
-  // 1. Update current user's following + feed
-  if (!alreadyFollowing) {
-    const newFeed = [
-      ...(currentData.feed || []),
-      ...theirPosts.filter(p => !(currentData.feed || []).includes(p))
-    ];
-
-    await updateDoc(currentUserRef, {
-      following: [...(currentData.following || []), targetEmail],
-      feed: newFeed
-    });
+onMounted(async () => {
+  if (!props.currentUser || !props.currentUser.email) {
+    // Not logged in, just show all users
+    await fetchSuggestedUsers();
   }
+})
 
-  // 2. Update target user's followers
-  if (!alreadyFollowedBy) {
-    await updateDoc(targetUserRef, {
-      followers: [...(targetData.followers || []), currentEmail]
-    });
+async function fetchSuggestedUsers() {
+  loading.value = true
+  try {
+    const querySnapshot = await getDocs(collection(firestore, 'users'))
+    const currentEmail = props.currentUser?.email || ''
+    allUsers.value = querySnapshot.docs
+      .map(doc => doc.data())
+      .filter(user => user.email !== currentEmail)
+  } catch (err) {
+    console.error('Error fetching users:', err)
+  } finally {
+    loading.value = false
   }
-
-  // 3. Update local currentUser.following for live UI updates
-  if (!Array.isArray(props.currentUser.following)) {
-    props.currentUser.following = [];
-  }
-  if (!props.currentUser.following.includes(targetEmail)) {
-    props.currentUser.following.push(targetEmail);
-  }
-
-  allUsers.value = allUsers.value.filter(u => u.email !== targetEmail)
-
 }
 
+async function followUser(targetEmail) {
+  const currentEmail = props.currentUser?.email
+  if (!currentEmail || currentEmail === targetEmail) return
 
+  try {
+    const currentUserRef = doc(firestore, 'users', currentEmail)
+    const targetUserRef = doc(firestore, 'users', targetEmail)
 
-// Safe filter logic
+    const [currentSnap, targetSnap] = await Promise.all([
+      getDoc(currentUserRef),
+      getDoc(targetUserRef)
+    ])
+
+    if (!currentSnap.exists() || !targetSnap.exists()) return
+
+    let currentData = currentSnap.data()
+    let targetData = targetSnap.data()
+
+    let following = new Set(currentData.following || [])
+    let followers = new Set(targetData.followers || [])
+
+    // Add target to current's following
+    following.add(targetEmail)
+    // Add current to target's followers
+    followers.add(currentEmail)
+
+    // Ensure reciprocal relationship
+    // If current is in target's followers, target must be in current's following
+    // If target is in current's following, current must be in target's followers
+
+    await updateDoc(currentUserRef, {
+      following: Array.from(following)
+    })
+    await updateDoc(targetUserRef, {
+      followers: Array.from(followers)
+    })
+
+    await refreshCurrentUser()
+    allUsers.value = allUsers.value.filter(u => u.email !== targetEmail)
+    await refreshCurrentUser()
+  } catch (err) {
+    console.error('Error following user:', err)
+  }
+}
+
+async function refreshCurrentUser() {
+  const currentEmail = authStore.user?.email || ''
+  if (!currentEmail) return
+
+  const ref = doc(firestore, 'users', currentEmail)
+  const snap = await getDoc(ref)
+  if (snap.exists()) {
+    authStore.user = snap.data()
+  }
+}
+
+const alreadyFollowing = computed(() => {
+  return new Set(authStore.user?.following || [])
+})
+
 const filtered = computed(() => {
   if (!props.isLoggedIn || !localUser.value) {
     return allUsers.value.slice(0, 5)
   }
 
   return allUsers.value
-    .filter(user =>
-      user.email !== localUser.value.email &&
-      !alreadyFollowing.value.has(user.email)
-    )
-    .slice(0, 5)
+  .filter(user =>
+    user?.email &&
+    user.email !== localUser.value.email &&
+    !alreadyFollowing.value.has(user.email)
+  )
+  .slice(0, 5)
 })
 
+watch(
+  () => filtered.value,
+  (val) => {
+    // No debug log
+  }
+)
 </script>
-
-
 
 <style scoped>
 .suggested-followers {
