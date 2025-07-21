@@ -17,6 +17,14 @@
     </div>
 
     <div v-else class="logout-box">
+        <!-- juror toggle -->   
+        <label class="juror-label">
+            <input type="checkbox" v-model="isJuror" @change="updateJurorStatus" />
+            Opt-in as a juror
+        </label>
+
+        <br /><br />
+        
       <button @click="logout">Log Out</button>
     </div>
   </div>
@@ -24,7 +32,7 @@
 
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/pinia'
 import { auth, firestore } from '@/firebaseResources'
@@ -34,13 +42,14 @@ import {
   signInWithEmailAndPassword,
   signOut
 } from 'firebase/auth'
-import { doc, setDoc, getDoc } from 'firebase/firestore'
+import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore'
 
 const authStore = useAuthStore()
 const router = useRouter()
 const isCreating = ref(false)
 const email = ref('')
 const password = ref('')
+const isJuror = ref(false)
 
 function toggleMode() {
   isCreating.value = !isCreating.value
@@ -60,7 +69,8 @@ async function handleSubmit() {
         feed: [],
         posts: [],
         followers: [],
-        following: []
+        following: [],
+        isJuror: false
       }
 
       await setDoc(doc(firestore, 'users', emailId), userData)
@@ -70,12 +80,19 @@ async function handleSubmit() {
       alert('Account created successfully!')
 
     } else {
-      // 🔐 Log in existing user
+      // Log in existing user
       const cred = await signInWithEmailAndPassword(auth, email.value, password.value)
 
       const emailId = cred.user.email
       const userDoc = await getDoc(doc(firestore, 'users', emailId))
       const data = userDoc.exists() ? userDoc.data() : {}
+      const userRef = doc(firestore, 'users', emailId) // mainly to make sure users have isJuror field 
+
+      // Adding `isJuror: false` to user if field doesn't exist
+      if (!('isJuror' in data)) {
+          data.isJuror = false
+          await updateDoc(userRef, { isJuror: false })
+      }
 
       authStore.login({
         email: emailId,
@@ -97,6 +114,23 @@ async function logout() {
   await signOut(auth)
   authStore.logout()
 }
+
+async function updateJurorStatus() {
+  if (!authStore.user?.email) return
+
+  const userRef = doc(firestore, 'users', authStore.user.email)
+  await updateDoc(userRef, { isJuror: isJuror.value })
+
+  // Update local store too
+  authStore.user.isJuror = isJuror.value
+}
+
+onMounted(() => {
+  if (authStore.user?.isJuror) {
+    isJuror.value = authStore.user.isJuror
+  }
+})
+
 </script>
 
 
@@ -166,6 +200,10 @@ async function logout() {
     .email {
         font-weight: bold;
         color: #2c3e50;
+    }
+    .juror-label {
+        color:rgb(5, 82, 29); /* Change to any color you want */
+        font-weight: bold; /* Optional: make it stand out */
     }
 </style>
 

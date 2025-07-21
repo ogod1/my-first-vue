@@ -9,7 +9,7 @@
 
       <div class="center-column">
         <PostInput v-if="isLoggedIn" @post="addNewPost" />
-        <PostFeed :posts="posts" />
+        <PostFeed :posts="posts" :isLoggedIn="isLoggedIn" />
       </div>
 
       <div class="right-column">

@@ -11,20 +11,24 @@
     <PostItem
       v-for="post in posts"
       :key="post.id"
+      :postId="post.id"
       :author="post.author"
       :timestamp="post.timestamp"
       :content="post.content"
+      :isLoggedIn="isLoggedIn"
     />
   </div>
 </template>
 
 <script setup>
 import PostItem from './PostItem.vue'
-
-// Props = input from parent (like HomeView.vue)
-defineProps({
+const props = defineProps({
   posts: {
     type: Array,
+    required: true
+  },
+  isLoggedIn: {
+    type: Boolean,
     required: true
   }
 })
