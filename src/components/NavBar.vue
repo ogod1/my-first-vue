@@ -3,6 +3,8 @@
     <nav>
       <router-link to="/" exact-active-class="active-link">Home</router-link>
       <router-link to="/login" exact-active-class="active-link">Login/Create</router-link>
+      <router-link to="/juror">Jury Duty</router-link>
+      <router-link to="/reported">My Reports</router-link>
     </nav>
   </header>
 </template>

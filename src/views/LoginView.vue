@@ -1,7 +1,7 @@
 <template>
   <div class="login-form">
     <h2 v-if="!authStore.isLoggedIn">{{ isCreating ? 'Create Account' : 'Login' }}</h2>
-    <h2 v-else>You're logged in as <span class="email">{{ authStore.user.email }}</span></h2>
+    <h2 v-else>You're logged in as <span class="email">{{ authStore.user?.email || 'unknown user' }}</span></h2>
 
     <div v-if="!authStore.isLoggedIn" class="form">
       <input v-model="email" type="email" placeholder="Email" />
@@ -51,6 +51,12 @@ const email = ref('')
 const password = ref('')
 const isJuror = ref(false)
 
+onMounted(() => {
+  if (authStore.user?.isJuror) {
+    isJuror.value = authStore.user.isJuror
+  }
+})
+
 function toggleMode() {
   isCreating.value = !isCreating.value
 }
@@ -90,8 +96,8 @@ async function handleSubmit() {
 
       // Adding `isJuror: false` to user if field doesn't exist
       if (!('isJuror' in data)) {
-          data.isJuror = false
-          await updateDoc(userRef, { isJuror: false })
+        data.isJuror = false
+        await updateDoc(userRef, { isJuror: false })
       }
 
       authStore.login({
@@ -124,12 +130,6 @@ async function updateJurorStatus() {
   // Update local store too
   authStore.user.isJuror = isJuror.value
 }
-
-onMounted(() => {
-  if (authStore.user?.isJuror) {
-    isJuror.value = authStore.user.isJuror
-  }
-})
 
 </script>
 

@@ -44,7 +44,8 @@ import {
   orderBy,
   limit,
   serverTimestamp,
-  onSnapshot
+  onSnapshot,
+  getDocs
 } from 'firebase/firestore'
 
 
@@ -61,6 +62,7 @@ let unsubscribeFeed = null
 
 onMounted(() => {
   setupFeedListener()
+  migratePostsModerationFields() // Run migration on component mount
 })
 
 watch([isLoggedIn, user], () => {
@@ -76,7 +78,10 @@ async function addNewPost(content) {
   const newPost = {
     timestamp: serverTimestamp(),
     author: user.value.email,
-    content
+    content,
+    reportCount: 0, // Ensure moderation field
+    status: 'approved', // Initial status
+    jurors: [] // Add jurors field for moderation workflow
   }
 
   const postRef = await addDoc(collection(firestore, 'posts'), newPost)
@@ -145,15 +150,46 @@ async function setupFeedListener() {
         limit(10)
       );
       onSnapshot(q, (snap) => {
-        posts.value = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        posts.value = snap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter(post => post.status !== 'underReview'); // Exclude posts under review
       });
     });
   } else {
     const q = query(collection(firestore, 'posts'), orderBy('timestamp', 'desc'), limit(10));
     unsubscribeFeed = onSnapshot(q, (snap) => {
-      posts.value = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      posts.value = snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(post => post.status !== 'underReview'); // Exclude posts under review
     });
   }
+}
+
+/**
+ * Migration: Ensure all posts have reportCount, status, and jurors fields
+ */
+async function migratePostsModerationFields() {
+  const postsCol = collection(firestore, 'posts');
+  const allPostsSnap = await getDocs(postsCol);
+  let updatedCount = 0;
+  for (const docSnap of allPostsSnap.docs) {
+    const post = docSnap.data();
+    const updates = {};
+    if (typeof post.reportCount !== 'number') {
+      updates.reportCount = 0;
+    }
+    if (!post.status) {
+      updates.status = 'approved';
+    }
+    if (!Array.isArray(post.jurors)) {
+      updates.jurors = [];
+    }
+    if (Object.keys(updates).length > 0) {
+      await updateDoc(doc(postsCol, docSnap.id), updates);
+      updatedCount++;
+    }
+  }
+  console.log(`Migration complete. Updated ${updatedCount} posts.`);
 }
 </script>
 

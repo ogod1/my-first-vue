@@ -34,7 +34,7 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/pinia'
 import { firestore } from '@/firebaseResources'
 
-import { doc, getDoc, getDocs, collection } from 'firebase/firestore'
+import { doc, getDoc, getDocs, collection, addDoc } from 'firebase/firestore'
 
 import UserStats from '@/components/UserStats.vue'
 import PostInput from '@/components/PostInput.vue'
@@ -92,8 +92,33 @@ onMounted(async () => {
 })
 
 async function addNewPost(content) {
-  console.warn('New post creation from profile view is not wired yet.')
-  // You could reuse your addNewPost logic from HomeView.vue here if needed
+  if (!auth.user || !auth.user.email) {
+    console.warn('User is missing email during post creation')
+    return
+  }
+
+  const newPost = {
+    timestamp: Date.now(), // Or use serverTimestamp if available
+    author: auth.user.email,
+    content,
+    reportCount: 0, // Ensure moderation field
+    status: 'approved' // Initial status
+  }
+
+  // Add to Firestore
+  try {
+    const postRef = await addDoc(collection(firestore, 'posts'), newPost)
+    // Optionally update user's posts array
+    const userRef = doc(firestore, 'users', auth.user.email)
+    const userSnap = await getDoc(userRef)
+    if (userSnap.exists()) {
+      const userData = userSnap.data()
+      const updatedPosts = [...(userData.posts || []), postRef.id]
+      // ...update user doc if needed...
+    }
+  } catch (e) {
+    console.error('Error creating post:', e)
+  }
 }
 </script>
 

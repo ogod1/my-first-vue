@@ -24,7 +24,7 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/pinia'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, collection, getDocs } from 'firebase/firestore'
 import { firestore } from '@/firebaseResources'
 
 // Props: input data from PostFeed.vue
@@ -33,7 +33,8 @@ const props = defineProps({
   timestamp: [Object, String, Number],
   content: String,
   postId: String, 
-  isLoggedIn: Boolean
+  isLoggedIn: Boolean,
+  wasEditted: false
 })
 
 const formattedDate = computed(() => {
@@ -55,9 +56,43 @@ const formattedDate = computed(() => {
 const auth = useAuthStore()
 const hasReported = ref(false)
 
+async function assignMissingJurorsToOldPosts() {
+  const postsSnap = await getDocs(collection(firestore, 'posts'))
+
+  for (const postDoc of postsSnap.docs) {
+    const postData = postDoc.data()
+    const postRef = doc(firestore, 'posts', postDoc.id)
+
+    const reportCount = postData.reportCount || 0
+    const jurors = postData.jurors || []
+    const status = postData.status || 'active'
+
+    if (reportCount >= 3 && jurors.length === 0 && status !== 'underReview') {
+      const newJurors = await getJurorEmails(5)
+
+      await updateDoc(postRef, {
+        jurors: newJurors,
+        status: 'underReview'
+      })
+
+      console.log(`Patched post ${postDoc.id} with jurors:`, newJurors)
+    }
+  }
+
+  console.log('Finished patching old posts.')
+}
+
+let hasRunJurorPatch = false // just to run once 
+
 onMounted(async () => {
   const user = auth.user
   if (!user?.email || !props.postId) return
+
+  // make sure even old posts have jurors assigned to them if required but only running once 
+  if (!hasRunJurorPatch) {
+    await assignMissingJurorsToOldPosts()
+    hasRunJurorPatch = true
+  }
 
   const postRef = doc(firestore, 'posts', props.postId)
   const postSnap = await getDoc(postRef)
@@ -86,13 +121,35 @@ async function handleReport() {
     reportCount: newReportCount,
     reportedBy: [...reportedBy, user.email]
   }
+  const jurors = postData.jurors || []
 
-  if (newReportCount >= 3 && postData.status !== 'flagged') {
-    updates.status = 'flagged'
+  // Assign jurors if threshold reached and not already assigned
+  if (newReportCount >= 3 && jurors.length === 0) {
+    // Example: assign 5 random jurors (replace with your actual juror selection logic)
+    const jurorEmails = await getJurorEmails(5)
+    updates.jurors = jurorEmails
+    updates.status = 'underReview'
+  } else if (newReportCount >= 3 && postData.status !== 'underReview') {
+    updates.status = 'underReview'
   }
 
   await updateDoc(postRef, updates)
   hasReported.value = true
+}
+
+// Helper to get juror emails (replace with your actual logic)
+async function getJurorEmails(count) {
+  const usersSnap = await getDocs(collection(firestore, 'users'))
+  const jurors = usersSnap.docs
+    .map(doc => doc.data())
+    .filter(user => user.isJuror)
+    .map(user => user.email)
+  // Shuffle and pick 'count' jurors
+  for (let i = jurors.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[jurors[i], jurors[j]] = [jurors[j], jurors[i]]
+  }
+  return jurors.slice(0, count)
 }
 </script>
 
