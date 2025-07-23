@@ -93,18 +93,14 @@ async function submitEdit(post) {
   }
 
   const postRef = doc(firestore, 'posts', post.id)
+  const newEntry = {
+    decision: 'resubmission',
+    content: newContent,
+    timestamp: Date.now()
+  }
+  const moderationHistory = [...(post.moderationHistory || []), newEntry]
 
   try {
-    const moderationHistory = post.moderationHistory ? [...post.moderationHistory] : []
-
-    if (post.status === 'revision') {
-      moderationHistory.push({
-        decision: 'edited_after_revision',
-        content: post.content,
-        timestamp: Date.now()
-      })
-    }
-
     await updateDoc(postRef, {
       content: newContent,
       status: 'underReview',

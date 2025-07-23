@@ -6,6 +6,7 @@
         <li>Posts: {{ user.posts?.length ?? 0 }}</li>
         <li>Following: {{ user.following ?? 0 }}</li>
         <li>Followers: {{ user.followers ?? 0 }}</li>
+        <li>Strikes: {{ user.strikes ?? 0 }}</li>
       </ul>
     </template>
 

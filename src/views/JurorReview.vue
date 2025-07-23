@@ -22,6 +22,18 @@
       >
         <p><strong>Content:</strong> {{ post.content }}</p>
 
+        <details v-if="post.moderationHistory && post.moderationHistory.length">
+          <summary>Moderation History</summary>
+          <ul>
+            <li v-for="(entry, index) in post.moderationHistory" :key="index">
+              <strong>{{ formatTimestamp(entry.timestamp) }}:</strong>
+              {{ formatVoteOption(entry.decision) }}
+              <br />
+              <em>{{ entry.content }}</em>
+            </li>
+          </ul>
+        </details>
+
         <div class="vote-buttons" v-if="!hasVoted(post)">
           <!-- If post is in revote, show only tied options -->
           <template v-if="post.status === 'revote' && post.revoteOptions">
@@ -60,10 +72,15 @@
               You voted: {{ formatVoteOption(getUserVote(post)) }}.<br />
               Final decision: {{ formatVoteOption(post.status) }}.
             </em>
-            <button @click="acknowledgePost(post.id)">Acknowledge and Remove Post</button>
+            <div v-if="!hasAcknowledged(post)">
+              <button @click="acknowledgePost(post.id)">
+                Acknowledge and Remove Post
+              </button>
+            </div>
           </template>
+
           <template v-else>
-            <em>You voted: {{ formatVoteOption(getUserVote(post)) }}. Final vote pending.</em>
+            <em>You voted: {{ getUserVote(post) }}. Final vote pending.</em>
           </template>
         </div>
 
@@ -76,7 +93,7 @@
   import { ref, onMounted, computed } from 'vue'
   import { useAuthStore } from '@/stores/pinia'
   import { firestore } from '@/firebaseResources'
-  import { collection, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore'
+  import { collection, getDocs, doc, getDoc, updateDoc, arrayUnion, query, where, onSnapshot } from 'firebase/firestore'
 
   import { updatePostVote } from '@/utils/votingLogic'
 
@@ -88,22 +105,33 @@
   const user = computed(() => auth.user)
   const acknowledgedPosts = ref(new Set())
 
-  onMounted(async () => {
-    const currentEmail = auth.user?.email
-    if (!currentEmail) return
+  onMounted(() => {
+  const currentEmail = auth.user?.email
+  if (!currentEmail) return
 
-    const userDoc = await getDoc(doc(firestore, 'users', currentEmail))
+  getDoc(doc(firestore, 'users', currentEmail)).then(userDoc => {
     if (!userDoc.exists()) return
     const userData = userDoc.data()
 
     isJuror.value = userData.isJuror === true
     if (!isJuror.value) return
 
-    const allPostsSnap = await getDocs(collection(firestore, 'posts'))
-    assignedPosts.value = allPostsSnap.docs
-      .map(doc => ({ id: doc.id, ...doc.data() }))
-      .filter(p => (p.jurors || []).includes(currentEmail) && p.status === 'underReview')
+    const postsQuery = query(
+      collection(firestore, 'posts'),
+      where('jurors', 'array-contains', currentEmail)
+    )
+
+    onSnapshot(postsQuery, (snapshot) => {
+      assignedPosts.value = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(p => {
+          const notAcknowledged = !(p.jurorAcknowledged || []).includes(currentEmail)
+          const isRelevantStatus = ['underReview', 'appropriate', 'inappropriate', 'revote'].includes(p.status)
+          return notAcknowledged && isRelevantStatus
+        })
+    })
   })
+})
 
 
   async function vote(postId, decision) {
@@ -112,7 +140,7 @@
 
     await updatePostVote(postId, currentEmail, decision)
 
-    // 🔄 Re-fetch this post from Firestore to get updated votes
+    // Re-fetch this post from Firestore to get updated votes
     const updatedSnap = await getDoc(doc(firestore, 'posts', postId))
     const updatedPost = { id: postId, ...updatedSnap.data() }
 
@@ -168,11 +196,36 @@
     return post?.votes?.length >= post?.jurors?.length
   }
 
-  function acknowledgePost(postId) {
-    acknowledgedPosts.value.add(postId)
-    assignedPosts.value = assignedPosts.value.filter(post => post.id !== postId)
+  function hasAcknowledged(post) {
+    return (post.jurorAcknowledged || []).includes(user.value?.email)
   }
 
+  async function acknowledgePost(postId) {
+    const currentEmail = user.value?.email
+    if (!currentEmail) return
+
+    const postRef = doc(firestore, 'posts', postId)
+    await updateDoc(postRef, {
+      jurorAcknowledged: arrayUnion(currentEmail)
+    })
+
+    // Remove post locally
+    assignedPosts.value = assignedPosts.value.filter(p => p.id !== postId)
+  }
+
+  function voteDetailsMessage(post) {
+    if (!hasVoted(post)) return ''
+    if (isFinalized(post)) {
+      return `You voted ${formatVoteOption(getUserVote(post))}. Final decision: ${formatVoteOption(post.finalDecision)}`
+    } else {
+      return `You voted ${formatVoteOption(getUserVote(post))}. Final decision still pending.`
+    }
+  }
+  function formatTimestamp(timestamp) {
+    if (!timestamp) return ''
+    const date = new Date(timestamp)
+    return date.toLocaleString()
+  }
 </script>
 
 <style scoped>
@@ -202,7 +255,6 @@
   .warning-text {
     margin: 0.5rem 0;
     color: #c00;
-    font-style: italic;
   }
 
 </style>

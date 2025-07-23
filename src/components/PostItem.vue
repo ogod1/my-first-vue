@@ -38,6 +38,7 @@ import { computed, ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/pinia'
 import { doc, getDoc, updateDoc, collection, getDocs } from 'firebase/firestore'
 import { firestore } from '@/firebaseResources'
+import { getJurorEmails } from '@/utils/votingLogic';
 
 // Props from PostFeed.vue
 const props = defineProps({
@@ -171,38 +172,6 @@ async function assignMissingJurorsToOldPosts() {
   }
 
   console.log('Finished patching old posts.')
-}
-
-async function getJurorEmails(requestedCount, excludeEmails = []) {
-  if (!Array.isArray(excludeEmails)) excludeEmails = []
-
-  const usersSnap = await getDocs(collection(firestore, 'users'))
-  const jurors = usersSnap.docs
-    .map(doc => doc.data())
-    .filter(user => user.isJuror)
-    .filter(user => !excludeEmails.includes(user.email))
-    .map(user => user.email)
-
-  // Shuffle
-  for (let i = jurors.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[jurors[i], jurors[j]] = [jurors[j], jurors[i]]
-  }
-
-  // ✅ Make sure number is odd
-  const maxAvailable = jurors.length
-  let finalCount = Math.min(requestedCount, maxAvailable)
-
-  if (finalCount % 2 === 0) {
-    finalCount-- // drop to nearest odd number
-  }
-
-  const selected = jurors.slice(0, finalCount)
-
-  console.log("🔍 Exclude list:", excludeEmails)
-  console.log("✅ Final jurors assigned:", selected)
-
-  return selected
 }
 
 </script>

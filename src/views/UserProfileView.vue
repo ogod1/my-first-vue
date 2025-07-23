@@ -12,7 +12,7 @@
             v-if="isLoggedIn && auth.user?.email === user?.email"
             @post="addNewPost"
         />
-        <PostFeed :posts="posts" />
+        <PostFeed :posts="posts" :isLoggedIn="isLoggedIn" />
       </div>
 
       <div class="right-column">

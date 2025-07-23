@@ -1,5 +1,6 @@
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, getDocs, collection, deleteDoc, arrayRemove } from 'firebase/firestore'
 import { firestore } from '@/firebaseResources'
+
 
 // Tally votes
 export function tallyVotes(votes) {
@@ -33,6 +34,35 @@ export function getPostModerationStatus(votes, jurorsLength = 5) {
     if (counts.appropriate === maxVotes) return 'appropriate'
 
     return 'underReview'
+}   
+
+export async function getJurorEmails(requestedCount, excludeEmails = []) {
+  if (!Array.isArray(excludeEmails)) excludeEmails = []
+
+  const usersSnap = await getDocs(collection(firestore, 'users'))
+  const jurors = usersSnap.docs
+    .map(doc => doc.data())
+    .filter(user => user.isJuror)
+    .filter(user => !excludeEmails.includes(user.email))
+    .map(user => user.email)
+
+  // Shuffle
+  for (let i = jurors.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[jurors[i], jurors[j]] = [jurors[j], jurors[i]]
+  }
+
+  // ✅ Make sure number is odd
+  const maxAvailable = jurors.length
+  let finalCount = Math.min(requestedCount, maxAvailable)
+
+  if (finalCount % 2 === 0) {
+    finalCount-- // drop to nearest odd number
+  }
+
+  const selected = jurors.slice(0, finalCount)
+
+  return selected
 }
 
 export async function updatePostVote(postId, jurorEmail, voteType) {
@@ -58,13 +88,31 @@ export async function updatePostVote(postId, jurorEmail, voteType) {
     console.log('Votes by juror:', updatedVotes.map(v => v.juror))
     const newStatus = getPostModerationStatus(updatedVotes, postData.jurors?.length || 5)
     console.log("🧠 Determined new status:", newStatus)
-    const moderationEntry = {
-        decision: newStatus,
-        content: postData.content,
-        timestamp: Date.now()
-    }
+    let newModerationHistory = postData.moderationHistory || []
 
-    const newModerationHistory = [...(postData.moderationHistory || []), moderationEntry]
+    const isResolved = ['appropriate', 'revision', 'inappropriate'].includes(newStatus)
+    const allVotesIn = updatedVotes.length >= jurorCount
+
+    // Only add to moderationHistory if resolved AND different from the last entry
+    if (isResolved && allVotesIn) {
+        const lastEntry = newModerationHistory[newModerationHistory.length - 1]
+
+        const isDuplicate =
+            lastEntry &&
+            lastEntry.decision === newStatus &&
+            lastEntry.content === postData.content
+
+        if (!isDuplicate) {
+            newModerationHistory = [
+                ...newModerationHistory,
+                {
+                    decision: newStatus,
+                    content: postData.content,
+                    timestamp: Date.now()
+                }
+            ]
+        }
+    }
 
     const updates = {
         votes: updatedVotes,
@@ -82,27 +130,21 @@ export async function updatePostVote(postId, jurorEmail, voteType) {
         const counts = tallyVotes(updatedVotes)
         const maxCount = Math.max(...Object.values(counts))
         const tiedOptions = Object.entries(counts)
-        .filter(([_, count]) => count === maxCount)
-        .map(([option]) => option)
-
-        // Pick 5 new jurors (excluding author and all prior jurors)
-        const previousJurors = updatedVotes.map(v => v.juror)
-        const excluded = [...previousJurors, authorEmail]
-
-        const newJurors = await getJurorEmails(5, excluded)
+            .filter(([_, count]) => count === maxCount)
+            .map(([option]) => option)
 
         await updateDoc(postRef, {
-            votes: [], // clear for revote
-            jurors: newJurors,
+            votes: [], // clear old votes
             revoteOptions: tiedOptions,
             status: 'revote',
             moderationHistory: newModerationHistory,
-            revoteRound: true
+            revoteRound: true // optional flag to indicate this is a revote round
         })
 
         console.warn(`🔁 Revote triggered for post ${postId} with options: ${tiedOptions.join(' & ')}`)
         return
     }
+
 
     // ⛔ STRIKE Logic (only when resolved and bad)
     if (updatedVotes.length >= 5 && ['inappropriate', 'revision'].includes(newStatus) && authorEmail) {
@@ -111,9 +153,20 @@ export async function updatePostVote(postId, jurorEmail, voteType) {
             ['appropriate', 'revision'].includes(entry.decision)
         )
 
-        const shouldStrike =
-            newStatus === 'inappropriate' ||
-            (newStatus === 'revision' && hasBeenModeratedBefore && previouslyResolved)
+        let shouldStrike = false
+
+        if (newStatus === 'inappropriate') {
+        shouldStrike = true
+        } else if (newStatus === 'revision') {
+        const hasBeenModeratedBefore = (postData.moderationHistory || []).length > 0
+        const previouslyResolved = (postData.moderationHistory || []).some(entry =>
+            ['appropriate', 'revision'].includes(entry.decision)
+        )
+        if (hasBeenModeratedBefore && previouslyResolved) {
+            shouldStrike = true
+        }
+        }
+
 
         if (shouldStrike) {
             const userRef = doc(firestore, 'users', authorEmail)
@@ -134,8 +187,6 @@ export async function updatePostVote(postId, jurorEmail, voteType) {
     }
 
     // Final wrap-up logic if resolved (regardless of vote count)
-    const isResolved = ['appropriate', 'revision', 'inappropriate'].includes(newStatus)
-    const allVotesIn = updatedVotes.length >= jurorCount
 
     if (isResolved && allVotesIn) {
         updates.status = newStatus // ✅ CRITICAL — update status field!
@@ -146,6 +197,37 @@ export async function updatePostVote(postId, jurorEmail, voteType) {
             updates.votes = []
             updates.revoteOptions = []
             updates.revoteRound = false
+        } else if (newStatus === 'inappropriate') {
+            // Notify jurors and author BEFORE deleting the post
+            const notifiedUsers = [...(postData.jurors || []), authorEmail]
+
+            for (const email of notifiedUsers) {
+            const userRef = doc(firestore, 'users', email)
+            const userSnap = await getDoc(userRef)
+            if (userSnap.exists()) {
+                const userData = userSnap.data()
+                const notifications = userData.notifications || []
+
+                notifications.push({
+                    message: `A post you reviewed or authored was deleted due to inappropriate content.`,
+                    timestamp: Date.now(),
+                    postId // optional: for reference even if deleted
+                })
+
+                await updateDoc(userRef, { notifications })
+            }
+            }
+            // Delete post document
+            await deleteDoc(postRef)
+
+            // Remove post ID from author's posts array
+            const userRef = doc(firestore, 'users', authorEmail)
+            await updateDoc(userRef, {
+                posts: arrayRemove(postId)
+            })
+
+            // Exit early since post no longer exists
+            return
         } else {
             updates.hidden = true
             updates.revoteOptions = []
