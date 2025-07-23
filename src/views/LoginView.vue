@@ -94,6 +94,13 @@ async function handleSubmit() {
       const data = userDoc.exists() ? userDoc.data() : {}
       const userRef = doc(firestore, 'users', emailId) // mainly to make sure users have isJuror field 
 
+      //locking user out if 3 strikes 
+      if (data.locked) {
+        alert('🚫 Your account has been locked due to repeated violations. Please contact support.')
+        await signOut(auth)
+        return
+      }
+
       // Adding `isJuror: false` to user if field doesn't exist
       if (!('isJuror' in data)) {
         data.isJuror = false

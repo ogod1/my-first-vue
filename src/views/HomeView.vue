@@ -152,7 +152,7 @@ async function setupFeedListener() {
       onSnapshot(q, (snap) => {
         posts.value = snap.docs
           .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter(post => post.status !== 'underReview'); // Exclude posts under review
+          .filter(post => post.status !== 'underReview' && post.status !== 'revote' && post.hidden !== true); // Exclude posts under review
       });
     });
   } else {
@@ -160,7 +160,7 @@ async function setupFeedListener() {
     unsubscribeFeed = onSnapshot(q, (snap) => {
       posts.value = snap.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(post => post.status !== 'underReview'); // Exclude posts under review
+        .filter(post => post.status !== 'underReview' && post.status !== 'revote' && post.hidden !== true); // Exclude posts under review
     });
   }
 }

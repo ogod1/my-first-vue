@@ -12,7 +12,7 @@
     <div class="post-actions" v-if="isLoggedIn">
       <button
         @click="handleReport"
-        :disabled="hasReported"
+        :disabled="hasReported"   
         class="report-button"
       >
         ⚠️ {{ hasReported ? 'Reported' : 'Report' }}
@@ -27,20 +27,21 @@ import { useAuthStore } from '@/stores/pinia'
 import { doc, getDoc, updateDoc, collection, getDocs } from 'firebase/firestore'
 import { firestore } from '@/firebaseResources'
 
-// Props: input data from PostFeed.vue
+// Props from PostFeed.vue
 const props = defineProps({
   author: String,
   timestamp: [Object, String, Number],
   content: String,
-  postId: String, 
-  isLoggedIn: Boolean,
-  wasEditted: false
+  postId: String,
+  isLoggedIn: Boolean
 })
+
+const auth = useAuthStore()
+const hasReported = ref(false)
 
 const formattedDate = computed(() => {
   if (!props.timestamp) return ''
   let d
-  // Firestore Timestamp object
   if (typeof props.timestamp === 'object' && props.timestamp.seconds) {
     d = new Date(props.timestamp.seconds * 1000)
   } else if (typeof props.timestamp === 'string' || typeof props.timestamp === 'number') {
@@ -53,42 +54,10 @@ const formattedDate = computed(() => {
   return d.toLocaleString()
 })
 
-const auth = useAuthStore()
-const hasReported = ref(false)
-
-async function assignMissingJurorsToOldPosts() {
-  const postsSnap = await getDocs(collection(firestore, 'posts'))
-
-  for (const postDoc of postsSnap.docs) {
-    const postData = postDoc.data()
-    const postRef = doc(firestore, 'posts', postDoc.id)
-
-    const reportCount = postData.reportCount || 0
-    const jurors = postData.jurors || []
-    const status = postData.status || 'active'
-
-    if (reportCount >= 3 && jurors.length === 0 && status !== 'underReview') {
-      const newJurors = await getJurorEmails(5)
-
-      await updateDoc(postRef, {
-        jurors: newJurors,
-        status: 'underReview'
-      })
-
-      console.log(`Patched post ${postDoc.id} with jurors:`, newJurors)
-    }
-  }
-
-  console.log('Finished patching old posts.')
-}
-
-let hasRunJurorPatch = false // just to run once 
-
 onMounted(async () => {
   const user = auth.user
   if (!user?.email || !props.postId) return
 
-  // make sure even old posts have jurors assigned to them if required but only running once 
   if (!hasRunJurorPatch) {
     await assignMissingJurorsToOldPosts()
     hasRunJurorPatch = true
@@ -113,21 +82,33 @@ async function handleReport() {
 
   const postData = postSnap.data()
   const reportedBy = postData.reportedBy || []
+  const jurors = postData.jurors || []
+  const newReportCount = (postData.reportCount || 0) + 1
 
   if (reportedBy.includes(user.email)) return
 
-  const newReportCount = (postData.reportCount || 0) + 1
+  // 👇 Updated reported list with current user BEFORE building exclude
+  const updatedReportedBy = [...reportedBy, user.email]
   const updates = {
     reportCount: newReportCount,
-    reportedBy: [...reportedBy, user.email]
+    reportedBy: updatedReportedBy
   }
-  const jurors = postData.jurors || []
 
-  // Assign jurors if threshold reached and not already assigned
+  // ✅ Now build exclude AFTER the update
+  const exclude = [postData.author, ...updatedReportedBy]
+
   if (newReportCount >= 3 && jurors.length === 0) {
-    // Example: assign 5 random jurors (replace with your actual juror selection logic)
-    const jurorEmails = await getJurorEmails(5)
-    updates.jurors = jurorEmails
+    let newJurors = await getJurorEmails(5, exclude)
+
+    // Retry until jurors are valid
+    let retries = 0
+    while (newJurors.some(email => exclude.includes(email)) && retries < 5) {
+      console.warn("🚫 Invalid jurors were selected. Retrying...")
+      newJurors = await getJurorEmails(5, exclude)
+      retries++
+    }
+
+    updates.jurors = newJurors
     updates.status = 'underReview'
   } else if (newReportCount >= 3 && postData.status !== 'underReview') {
     updates.status = 'underReview'
@@ -137,23 +118,78 @@ async function handleReport() {
   hasReported.value = true
 }
 
-// Helper to get juror emails (replace with your actual logic)
-async function getJurorEmails(count) {
+
+// Only run once per session
+let hasRunJurorPatch = false
+
+async function assignMissingJurorsToOldPosts() {
+  const postsSnap = await getDocs(collection(firestore, 'posts'))
+
+  for (const postDoc of postsSnap.docs) {
+    const postData = postDoc.data()
+    const postRef = doc(firestore, 'posts', postDoc.id)
+
+    const reportCount = postData.reportCount || 0
+    const jurors = postData.jurors || []
+    const status = postData.status || 'active'
+    const reportedBy = postData.reportedBy || []
+    const exclude = [postData.author, ...reportedBy]
+
+    if (reportCount >= 3 && jurors.length === 0 && status !== 'underReview') {
+      let newJurors = await getJurorEmails(5, exclude)
+
+      let retries = 0
+      while (newJurors.some(email => exclude.includes(email)) && retries < 5) {
+        console.warn("🚫 Invalid jurors were selected during patch. Retrying...")
+        newJurors = await getJurorEmails(5, exclude)
+        retries++
+      }
+
+      await updateDoc(postRef, {
+        jurors: newJurors,
+        status: 'underReview'
+      })
+
+      console.log(`Patched post ${postDoc.id} with jurors:`, newJurors)
+    }
+  }
+
+  console.log('Finished patching old posts.')
+}
+
+async function getJurorEmails(requestedCount, excludeEmails = []) {
+  if (!Array.isArray(excludeEmails)) excludeEmails = []
+
   const usersSnap = await getDocs(collection(firestore, 'users'))
   const jurors = usersSnap.docs
     .map(doc => doc.data())
     .filter(user => user.isJuror)
+    .filter(user => !excludeEmails.includes(user.email))
     .map(user => user.email)
-  // Shuffle and pick 'count' jurors
+
+  // Shuffle
   for (let i = jurors.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
     ;[jurors[i], jurors[j]] = [jurors[j], jurors[i]]
   }
-  return jurors.slice(0, count)
+
+  // ✅ Make sure number is odd
+  const maxAvailable = jurors.length
+  let finalCount = Math.min(requestedCount, maxAvailable)
+
+  if (finalCount % 2 === 0) {
+    finalCount-- // drop to nearest odd number
+  }
+
+  const selected = jurors.slice(0, finalCount)
+
+  console.log("🔍 Exclude list:", excludeEmails)
+  console.log("✅ Final jurors assigned:", selected)
+
+  return selected
 }
+
 </script>
-
-
 
 <style scoped>
 .post-item {
@@ -175,12 +211,6 @@ async function getJurorEmails(count) {
 .author {
   font-weight: bold;
   color: #333;
-}
-
-.post-content {
-  font-size: 1rem;
-  line-height: 1.5;
-  color: #555;
 }
 
 .post-content {
