@@ -8,6 +8,18 @@
       {{ content }}
     </div>
 
+    <div class="moderation-history" v-if="(isJuror || isAuthor) && moderationHistory.length">
+      <h4>Moderation History</h4>
+      <ul>
+        <li v-for="(entry, index) in moderationHistory" :key="index" class="history-entry">
+          <div class="history-meta">
+            <strong>{{ new Date(entry.timestamp).toLocaleString() }}</strong> — {{ entry.decision }}
+          </div>
+          <pre class="history-content">{{ entry.content }}</pre>
+        </li>
+      </ul>
+    </div>
+
     <!-- Only show report button when logged in -->
     <div class="post-actions" v-if="isLoggedIn">
       <button
@@ -33,7 +45,11 @@ const props = defineProps({
   timestamp: [Object, String, Number],
   content: String,
   postId: String,
-  isLoggedIn: Boolean
+  isLoggedIn: Boolean,
+  moderationHistory: {
+    type: Array,
+    default: () => []
+  }
 })
 
 const auth = useAuthStore()
@@ -237,4 +253,35 @@ async function getJurorEmails(requestedCount, excludeEmails = []) {
   background-color: #ccc;
   cursor: not-allowed;
 }
+
+.moderation-history {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed #bbb;
+}
+
+.moderation-history h4 {
+  margin-bottom: 0.5rem;
+  color: #333;
+}
+
+.history-entry {
+  margin-bottom: 0.75rem;
+}
+
+.history-meta {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.history-content {
+  background-color: #f9f9f9;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  font-size: 0.95rem;
+  color: #444;
+}
+
 </style>

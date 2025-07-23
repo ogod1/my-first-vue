@@ -15,6 +15,7 @@
       :author="post.author"
       :timestamp="post.timestamp"
       :content="post.content"
+      :moderationHistory="post.moderationHistory"
       :isLoggedIn="isLoggedIn"
     />
   </div>

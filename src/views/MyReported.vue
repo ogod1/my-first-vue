@@ -6,7 +6,7 @@
       <p>Please log in to review your posts.</p>
     </div>
 
-    <div v-else-if="!user || !user.email || !user.username">
+    <div v-else-if="!user || !user.email">
       <p>User info not loaded. Please wait or try logging in again.</p>
     </div>
 
@@ -20,10 +20,27 @@
         <p><strong>Original Content:</strong></p>
         <p class="post-content">{{ post.content }}</p>
 
-        <div v-if="post.status === 'revision' || post.status === 'pending_edit'">
+        <!-- Show edit box if revision -->
+        <div v-if="post.status === 'revision'">
           <textarea v-model="editedContent[post.id]" rows="4" cols="50"></textarea>
           <button @click="submitEdit(post)">Submit Edit</button>
         </div>
+
+        <!-- Show message and acknowledge button if appropriate -->
+        <div v-else-if="post.status === 'appropriate' && !acknowledgedPosts.has(post.id)">
+          <p>Your post was just fine. It will return back to feeds.</p>
+          <button @click="acknowledgePost(post.id)">Acknowledge</button>
+        </div>
+
+        <!-- Show message and acknowledge button if inappropriate -->
+        <div v-else-if="post.status === 'inappropriate' && !acknowledgedPosts.has(post.id)">
+          <p>
+            Your post was found very inappropriate and will be deleted. If this is your first offense, you will not get a strike.
+            Otherwise, you have gained a strike against your account.
+          </p>
+          <button @click="acknowledgePost(post.id)">Acknowledge</button>
+        </div>
+
       </div>
     </div>
   </div>
@@ -41,14 +58,21 @@ const user = computed(() => auth.user)
 const flaggedPosts = ref([])
 const editedContent = ref({})  // Track edited content keyed by post ID
 
-onMounted(async () => {
-  if (!user.value || !user.value.email || !user.value.username) return
+// Track posts author has acknowledged, so they disappear from the list on UI only
+const acknowledgedPosts = ref(new Set())
 
-  // Query posts by this user where status !== 'approved'
+onMounted(async () => {
+  if (!user.value?.email) return
+
   const postsSnap = await getDocs(collection(firestore, 'posts'))
-  flaggedPosts.value = postsSnap.docs
-    .map(doc => ({ id: doc.id, ...doc.data() }))
-    .filter(post => post.author === user.value.username && post.status !== 'approved')
+
+  const allPosts = postsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+  flaggedPosts.value = allPosts.filter(
+    post =>
+      post.author === user.value.email &&
+      ['underReview', 'revision', 'appropriate', 'inappropriate'].includes(post.status)
+  )
 
   // Initialize editedContent with current post contents
   flaggedPosts.value.forEach(post => {
@@ -58,24 +82,51 @@ onMounted(async () => {
 
 async function submitEdit(post) {
   const newContent = editedContent.value[post.id]
-  if (!newContent) return alert('Content cannot be empty.')
+  if (!newContent || newContent.trim() === '') {
+    alert('Content cannot be empty.')
+    return
+  }
+
+  if (newContent.trim() === post.content.trim()) {
+    alert('No changes detected.')
+    return
+  }
 
   const postRef = doc(firestore, 'posts', post.id)
 
   try {
+    const moderationHistory = post.moderationHistory ? [...post.moderationHistory] : []
+
+    if (post.status === 'revision') {
+      moderationHistory.push({
+        decision: 'edited_after_revision',
+        content: post.content,
+        timestamp: Date.now()
+      })
+    }
+
     await updateDoc(postRef, {
       content: newContent,
-      status: 'pending_edit',  // mark as pending re-review
-      editHistory: [...(post.editHistory || []), { content: post.content, date: new Date().toISOString() }]
+      status: 'underReview',
+      votes: [],
+      hidden: false,
+      moderationHistory
     })
-    alert('Edit submitted! Your post will be reviewed again.')
 
-    // Optionally update local data to remove or refresh this post in UI
-    flaggedPosts.value = flaggedPosts.value.filter(p => p.id !== post.id)
+    alert('Edit submitted! Jurors will re-review your updated post.')
+
+    // Update local state
+    post.content = newContent
+    post.status = 'underReview'
   } catch (error) {
     console.error('Failed to submit edit:', error)
     alert('Failed to submit edit. Please try again.')
   }
+}
+
+function acknowledgePost(postId) {
+  acknowledgedPosts.value.add(postId)
+  flaggedPosts.value = flaggedPosts.value.filter(post => post.id !== postId)
 }
 </script>
 
@@ -92,6 +143,7 @@ async function submitEdit(post) {
   padding: 1rem;
   border-radius: 6px;
   background: #f7f7f7;
+  color: #333;
 }
 
 .post-content {
@@ -100,6 +152,7 @@ async function submitEdit(post) {
   padding: 0.5rem;
   border-radius: 4px;
   margin-bottom: 0.5rem;
+  color: #333;
 }
 
 textarea {

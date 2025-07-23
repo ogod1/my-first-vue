@@ -57,12 +57,13 @@
         <div v-else class="vote-confirmation">
           <template v-if="isFinalized(post)">
             <em>
-              You voted: {{ getUserVote(post) }}.<br />
+              You voted: {{ formatVoteOption(getUserVote(post)) }}.<br />
               Final decision: {{ formatVoteOption(post.status) }}.
             </em>
+            <button @click="acknowledgePost(post.id)">Acknowledge and Remove Post</button>
           </template>
           <template v-else>
-            <em>You voted: {{ getUserVote(post) }}. Final vote pending.</em>
+            <em>You voted: {{ formatVoteOption(getUserVote(post)) }}. Final vote pending.</em>
           </template>
         </div>
 
@@ -85,6 +86,7 @@
   const assignedPostIds = ref([])
   const isLoggedIn = computed(() => auth.isLoggedIn)
   const user = computed(() => auth.user)
+  const acknowledgedPosts = ref(new Set())
 
   onMounted(async () => {
     const currentEmail = auth.user?.email
@@ -136,11 +138,11 @@
   function formatVoteOption(option) {
     switch (option) {
       case 'appropriate':
-        return '✅ Appropriate'
+        return 'Appropriate'
       case 'revision':
-        return '✏️ Needs Revision'
+        return 'Needs Revision'
       case 'inappropriate':
-        return '🚫 Inappropriate'
+        return 'Inappropriate'
       default:
         return option
     }
@@ -165,6 +167,12 @@
   function isFinalized(post) {
     return post?.votes?.length >= post?.jurors?.length
   }
+
+  function acknowledgePost(postId) {
+    acknowledgedPosts.value.add(postId)
+    assignedPosts.value = assignedPosts.value.filter(post => post.id !== postId)
+  }
+
 </script>
 
 <style scoped>

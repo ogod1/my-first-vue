@@ -102,7 +102,7 @@ async function addNewPost(content) {
     author: auth.user.email,
     content,
     reportCount: 0, // Ensure moderation field
-    status: 'approved' // Initial status
+    status: 'appropriate' // Initial status
   }
 
   // Add to Firestore

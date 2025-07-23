@@ -42,6 +42,7 @@ export async function updatePostVote(postId, jurorEmail, voteType) {
 
     const postData = postSnap.data()
     const votes = postData.votes || []
+    const jurorCount = postData.jurors?.length || 5
 
     // Prevent duplicate voting
     if (votes.some(v => v.juror === jurorEmail)) return
@@ -52,6 +53,9 @@ export async function updatePostVote(postId, jurorEmail, voteType) {
         timestamp: Date.now()
     }]
 
+    console.log('Votes count:', updatedVotes.length)
+    console.log('Jurors assigned:', jurorCount)
+    console.log('Votes by juror:', updatedVotes.map(v => v.juror))
     const newStatus = getPostModerationStatus(updatedVotes, postData.jurors?.length || 5)
     console.log("🧠 Determined new status:", newStatus)
     const moderationEntry = {
@@ -64,7 +68,7 @@ export async function updatePostVote(postId, jurorEmail, voteType) {
 
     const updates = {
         votes: updatedVotes,
-        moderationHistory: newModerationHistory
+        moderationHistory: newModerationHistory,
     }
 
     // Always assign status explicitly to prevent accidental overwrite
@@ -130,24 +134,23 @@ export async function updatePostVote(postId, jurorEmail, voteType) {
     }
 
     // Final wrap-up logic if resolved (regardless of vote count)
-    const jurorCount = postData.jurors?.length || 5
     const isResolved = ['appropriate', 'revision', 'inappropriate'].includes(newStatus)
     const allVotesIn = updatedVotes.length >= jurorCount
 
     if (isResolved && allVotesIn) {
-    updates.status = newStatus // ✅ CRITICAL — update status field!
+        updates.status = newStatus // ✅ CRITICAL — update status field!
 
-    if (newStatus === 'appropriate') {
-        updates.reportCount = 0
-        updates.jurors = []
-        updates.votes = []
-        updates.revoteOptions = []
-        updates.revoteRound = false
-    } else {
-        updates.hidden = true
-        updates.revoteOptions = []
-        updates.revoteRound = false
-    }
+        if (newStatus === 'appropriate') {
+            updates.reportCount = 0
+            updates.jurors = []
+            updates.votes = []
+            updates.revoteOptions = []
+            updates.revoteRound = false
+        } else {
+            updates.hidden = true
+            updates.revoteOptions = []
+            updates.revoteRound = false
+        }
     }
 
 

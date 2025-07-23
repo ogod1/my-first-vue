@@ -80,7 +80,7 @@ async function addNewPost(content) {
     author: user.value.email,
     content,
     reportCount: 0, // Ensure moderation field
-    status: 'approved', // Initial status
+    status: 'appropriate', // Initial status
     jurors: [] // Add jurors field for moderation workflow
   }
 
@@ -179,7 +179,7 @@ async function migratePostsModerationFields() {
       updates.reportCount = 0;
     }
     if (!post.status) {
-      updates.status = 'approved';
+      updates.status = 'appropriate';
     }
     if (!Array.isArray(post.jurors)) {
       updates.jurors = [];
